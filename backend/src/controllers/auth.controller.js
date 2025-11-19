@@ -2,7 +2,7 @@ import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import { generateToken } from "../lib/utils.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
-import { ENV } from '../lib/env.js'
+import { ENV } from "../lib/env.js";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -61,10 +61,36 @@ export const signup = async (req, res) => {
   }
 };
 
-export const login = (req, res) => {
-  res.send("Login endpoint");
+export const login = async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and password are required" });
+  }
+  
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: "Invalid Credentials" });
+    //never tell the client which one is incorrect
+
+    const isPasswordCorrect = await bcrypt.compare(password, user.password);
+    if (!isPasswordCorrect) return res.status(400).json({ message: "Invalid Credentials" });
+
+    generateToken(user._id, res);
+
+    res.status(200).json({
+      _id: user._id,
+      fullName: user.fullName,
+      email: user.email,
+      profilePic: user.profilePic,
+    });
+  } catch (error) {
+    console.error("Error in login controller", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
 };
 
-export const logout = (req, res) => {
-  res.send("Logout endpoint");
+export const logout = (_, res) => {
+  res.cookie("jwt", "", { maxAge: 0 });
+  res.status(200).json({ message: "Logged out successfully!" });
 };
