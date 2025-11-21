@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 export const useChatStore = create((set,get) => ({
   allContacts: [],
   chats: [],
-  message: [],
+  messages: [],
   activeTab: "chats",
   selectedUser: null,
   isUsersLoading: false,
@@ -41,6 +41,18 @@ export const useChatStore = create((set,get) => ({
         toast.error(error.response?.data?.message || "Error occurred while fetching chat partners.");
     } finally {
         set({ isUsersLoading: false})
+    }
+  },
+
+  getMessagesByUserId: async(userId) => {
+    set({ isMessagesLoading: true});
+    try {
+      const res = await axiosInstance.get(`/messages/${userId}`);
+      set({ messages: res.data });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Error occurred while fetching messages.");
+    } finally {
+      set({ isMessagesLoading: false});
     }
   }
 }));
