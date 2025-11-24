@@ -1,10 +1,12 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { useChatStore } from "../store/useChatStore.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import ChatHeader from "./ChatHeader.jsx";
 import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder.jsx";
 import MessagesLoadingSkeleton from "./MessagesLoadingSkeleton.jsx";
 import MessageInput from "./MessageInput.jsx";
+import MessageOptionsMenu from "./MessageOptionsMenu.jsx";
+import DeleteMessageModal from "./DeleteMessageModal.jsx";
 
 function ChatContainer() {
   const {
@@ -14,9 +16,16 @@ function ChatContainer() {
     isMessagesLoading,
     subscribeToMessages,
     unsubscribeFromMessages,
+    deleteMessageForEveryone,
+    deleteMessageForMe,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
+  const [deleteModalState, setDeleteModalState] = useState({
+    isOpen: false,
+    messageId: null,
+    isOwnMessage: false,
+  });
 
   useEffect(() => {
     getMessagesByUserId(selectedUser._id);
@@ -33,6 +42,36 @@ function ChatContainer() {
     }
   }, [messages]);
 
+  const handleDeleteClick = (messageId, isOwnMessage) => {
+    setDeleteModalState({
+      isOpen: true,
+      messageId,
+      isOwnMessage,
+    });
+  };
+
+  const handleCloseModal = () => {
+    setDeleteModalState({
+      isOpen: false,
+      messageId: null,
+      isOwnMessage: false,
+    });
+  };
+
+  const handleDeleteForEveryone = async () => {
+    if (deleteModalState.messageId) {
+      await deleteMessageForEveryone(deleteModalState.messageId);
+      handleCloseModal();
+    }
+  };
+
+  const handleDeleteForMe = async () => {
+    if (deleteModalState.messageId) {
+      await deleteMessageForMe(deleteModalState.messageId);
+      handleCloseModal();
+    }
+  };
+
   return (
     <>
       <ChatHeader />
@@ -40,7 +79,9 @@ function ChatContainer() {
         {messages.length > 0 && !isMessagesLoading ? (
           <div className="max-w-3xl mx-auto space-y-6">
             {messages.map((msg) => (
-              <div key={msg._id} className={`chat ${msg.senderId === authUser._id ? "chat-end" : "chat-start"}`}>
+              <div key={msg._id} className={`chat ${msg.senderId === authUser._id ? "chat-end" : "chat-start"} group flex items-center gap-2 ${
+                msg.senderId === authUser._id ? "flex-row-reverse" : "flex-row"
+              }`}>
                 <div
                   className={`chat-bubble relative ${
                     msg.senderId === authUser._id ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-200"
@@ -54,6 +95,11 @@ function ChatContainer() {
                     })}
                   </p>
                 </div>
+                
+                {/* Three-dot menu outside bubble */}
+                <MessageOptionsMenu 
+                  onDelete={() => handleDeleteClick(msg._id, msg.senderId === authUser._id)}
+                />
               </div>
             ))}
             {/* scroll target */}
@@ -67,6 +113,15 @@ function ChatContainer() {
       </div>
 
       <MessageInput />
+
+      {/* Delete Message Modal */}
+      <DeleteMessageModal
+        isOpen={deleteModalState.isOpen}
+        onClose={handleCloseModal}
+        onDeleteForEveryone={handleDeleteForEveryone}
+        onDeleteForMe={handleDeleteForMe}
+        isOwnMessage={deleteModalState.isOwnMessage}
+      />
     </>
   );
 }
