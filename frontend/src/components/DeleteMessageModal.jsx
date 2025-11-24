@@ -5,7 +5,7 @@ function DeleteMessageModal({ isOpen, onClose, onDeleteForEveryone, onDeleteForM
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
       <div className="bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-700">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-700">
