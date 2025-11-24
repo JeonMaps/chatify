@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
 import { useChatStore } from "../store/useChatStore.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import ChatHeader from "./ChatHeader.jsx";
@@ -7,6 +7,7 @@ import MessagesLoadingSkeleton from "./MessagesLoadingSkeleton.jsx";
 import MessageInput from "./MessageInput.jsx";
 import MessageOptionsMenu from "./MessageOptionsMenu.jsx";
 import DeleteMessageModal from "./DeleteMessageModal.jsx";
+import ImageViewerModal from "./ImageViewerModal.jsx";
 
 function ChatContainer() {
   const {
@@ -26,15 +27,30 @@ function ChatContainer() {
     messageId: null,
     isOwnMessage: false,
   });
+  const [imageViewerState, setImageViewerState] = useState({
+    isOpen: false,
+    initialIndex: 0,
+  });
+
+  // Get all images from messages for the image viewer
+  const messageImages = useMemo(() => {
+    return messages
+      .filter((msg) => msg.image)
+      .map((msg) => ({
+        url: msg.image,
+        messageId: msg._id,
+      }));
+  }, [messages]);
 
   useEffect(() => {
-    getMessagesByUserId(selectedUser._id);
-
-    subscribeToMessages();
+    if (selectedUser?._id) {
+      getMessagesByUserId(selectedUser._id);
+      subscribeToMessages();
+    }
 
     //cleanup
     return () => unsubscribeFromMessages();
-  }, [selectedUser, getMessagesByUserId, subscribeToMessages, unsubscribeFromMessages]);
+  }, [selectedUser?._id]);
 
   useEffect(() => {
     if (messageEndRef.current) {
@@ -72,6 +88,21 @@ function ChatContainer() {
     }
   };
 
+  const handleImageClick = (imageUrl) => {
+    const imageIndex = messageImages.findIndex((img) => img.url === imageUrl);
+    setImageViewerState({
+      isOpen: true,
+      initialIndex: imageIndex >= 0 ? imageIndex : 0,
+    });
+  };
+
+  const handleCloseImageViewer = () => {
+    setImageViewerState({
+      isOpen: false,
+      initialIndex: 0,
+    });
+  };
+
   return (
     <>
       <ChatHeader />
@@ -86,7 +117,14 @@ function ChatContainer() {
                   className={`chat-bubble relative ${
                     msg.senderId === authUser._id ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-200"
                   }`}>
-                  {msg.image && <img src={msg.image} alt="Shared" className="rounded-lg h-48 object-cover" />}
+                  {msg.image && (
+                    <img 
+                      src={msg.image} 
+                      alt="Shared" 
+                      className="rounded-lg h-48 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                      onClick={() => handleImageClick(msg.image)}
+                    />
+                  )}
                   {msg.text && <p className="mt-2">{msg.text}</p>}
                   <p className="text-xs mt-1 opacity-75 flex items-center gap-1">
                     {new Date(msg.createdAt).toLocaleTimeString(undefined, {
@@ -121,6 +159,14 @@ function ChatContainer() {
         onDeleteForEveryone={handleDeleteForEveryone}
         onDeleteForMe={handleDeleteForMe}
         isOwnMessage={deleteModalState.isOwnMessage}
+      />
+
+      {/* Image Viewer Modal */}
+      <ImageViewerModal
+        isOpen={imageViewerState.isOpen}
+        onClose={handleCloseImageViewer}
+        images={messageImages}
+        initialIndex={imageViewerState.initialIndex}
       />
     </>
   );
