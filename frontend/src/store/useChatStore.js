@@ -90,7 +90,9 @@ export const useChatStore = create((set, get) => ({
 
     const socket = useAuthStore.getState().socket;
 
+    //listen to newMessage event from server
     socket.on("newMessage", (newMessage) => {
+      //check first if selected user is the sender of the new message
       const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
       if (!isMessageSentFromSelectedUser) return;
       
@@ -103,10 +105,41 @@ export const useChatStore = create((set, get) => ({
         notificationSound.play().catch((e) => console.log("Audio play failed:", e));
       }
     });
+
+    //listen to messageDeletedForEveryone event
+    socket.on("messageDeletedForEveryone", (messageId) => {
+      const currentMessages = get().messages;
+      set({ messages: currentMessages.filter(msg => msg._id !== messageId) });
+    });
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
     socket.off("newMessage");
+    socket.off("messageDeletedForEveryone");
+  },
+
+  deleteMessageForEveryone: async (messageId) => {
+    try {
+      await axiosInstance.delete(`/messages/delete-for-everyone/${messageId}`);
+      // Remove message from UI immediately
+      const currentMessages = get().messages;
+      set({ messages: currentMessages.filter(msg => msg._id !== messageId) });
+      toast.success("Message deleted for everyone");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Error occurred while deleting message.");
+    }
+  },
+
+  deleteMessageForMe: async (messageId) => {
+    try {
+      await axiosInstance.delete(`/messages/delete-for-me/${messageId}`);
+      // Remove message from UI immediately
+      const currentMessages = get().messages;
+      set({ messages: currentMessages.filter(msg => msg._id !== messageId) });
+      toast.success("Message deleted for you");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Error occurred while deleting message.");
+    }
   }
 }));
