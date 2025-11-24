@@ -52,6 +52,18 @@ export const getMessagesByUserId = async (req, res) => {
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
+      $or: [
+        { deletedForEveryone: { $ne: true } },
+        { deletedForEveryone: { $exists: false } }
+      ],
+      $and: [
+        {
+          $or: [
+            { deletedFor: { $ne: myId } },
+            { deletedFor: { $exists: false } }
+          ]
+        }
+      ]
     });
 
     res.status(200).json(messages);
@@ -105,6 +117,79 @@ export const sendMessage = async (req, res) => {
     res.status(201).json(newMessage);
   } catch (error) {
     console.log("Error in sendMessage controller", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteMessageForEveryone = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    //only the sender can delete for everyone
+    if (message.senderId.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "You can only delete your own messages for everyone" });
+    }
+
+    //mark as deleted for everyone
+    message.deletedForEveryone = true;
+    await message.save();
+
+    //notify both users via socket
+    const receiverSocketId = getReceiverSocketId(message.receiverId.toString());
+    const senderSocketId = getReceiverSocketId(message.senderId.toString());
+
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("messageDeletedForEveryone", messageId);
+    }
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("messageDeletedForEveryone", messageId);
+    }
+
+    res.status(200).json({ message: "Message deleted for everyone" });
+  } catch (error) {
+    console.log("Error in deleteMessageForEveryone controller", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteMessageForMe = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    //check if user is part of this conversation
+    if (
+      message.senderId.toString() !== userId.toString() &&
+      message.receiverId.toString() !== userId.toString()
+    ) {
+      return res.status(403).json({ message: "You are not part of this conversation" });
+    }
+
+    //check if already deleted for this user
+    if (message.deletedFor.includes(userId)) {
+      return res.status(400).json({ message: "Message already deleted for you" });
+    }
+
+    //add user to deletedFor array
+    message.deletedFor.push(userId);
+    await message.save();
+
+    res.status(200).json({ message: "Message deleted for you" });
+  } catch (error) {
+    console.log("Error in deleteMessageForMe controller", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };
