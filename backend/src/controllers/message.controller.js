@@ -48,15 +48,19 @@ export const getMessagesByUserId = async (req, res) => {
     const { id: userToChatId } = req.params;
 
     const messages = await Message.find({
-      $or: [
-        { senderId: myId, receiverId: userToChatId },
-        { senderId: userToChatId, receiverId: myId },
-      ],
-      $or: [
-        { deletedForEveryone: { $ne: true } },
-        { deletedForEveryone: { $exists: false } }
-      ],
       $and: [
+        {
+          $or: [
+            { senderId: myId, receiverId: userToChatId },
+            { senderId: userToChatId, receiverId: myId },
+          ]
+        },
+        {
+          $or: [
+            { deletedForEveryone: { $ne: true } },
+            { deletedForEveryone: { $exists: false } }
+          ]
+        },
         {
           $or: [
             { deletedFor: { $ne: myId } },
