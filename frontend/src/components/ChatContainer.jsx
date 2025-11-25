@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useChatStore } from "../store/useChatStore.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import ChatHeader from "./ChatHeader.jsx";
@@ -8,6 +9,7 @@ import MessageInput from "./MessageInput.jsx";
 import MessageOptionsMenu from "./MessageOptionsMenu.jsx";
 import DeleteMessageModal from "./DeleteMessageModal.jsx";
 import ImageViewerModal from "./ImageViewerModal.jsx";
+import { getTimeAgo, formatTimestamp } from "../lib/utils.js";
 
 function ChatContainer() {
   const {
@@ -19,6 +21,8 @@ function ChatContainer() {
     unsubscribeFromMessages,
     deleteMessageForEveryone,
     deleteMessageForMe,
+    markMessagesAsRead,
+    updateUnreadCount,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
@@ -31,6 +35,8 @@ function ChatContainer() {
     isOpen: false,
     initialIndex: 0,
   });
+  const [hoveredMessageId, setHoveredMessageId] = useState(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
 
   // Get all images from messages for the image viewer
   const messageImages = useMemo(() => {
@@ -46,6 +52,10 @@ function ChatContainer() {
     if (selectedUser?._id) {
       getMessagesByUserId(selectedUser._id);
       subscribeToMessages();
+      // Mark messages as read when opening conversation
+      markMessagesAsRead(selectedUser._id);
+      // Clear unread count in UI immediately
+      updateUnreadCount(selectedUser._id, false);
     }
 
     //cleanup
@@ -57,6 +67,13 @@ function ChatContainer() {
       messageEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  const handleChatContainerClick = () => {
+    if (selectedUser?._id) {
+      markMessagesAsRead(selectedUser._id);
+      updateUnreadCount(selectedUser._id, false);
+    }
+  };
 
   const handleDeleteClick = (messageId, isOwnMessage) => {
     setDeleteModalState({
@@ -103,43 +120,69 @@ function ChatContainer() {
     });
   };
 
+  const handleMouseEnter = (event, messageId) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTooltipPosition({
+      top: rect.top - 35, // Position above the bubble
+      left: rect.left + rect.width / 2, // Center horizontally
+    });
+    setHoveredMessageId(messageId);
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredMessageId(null);
+  };
+
   return (
     <>
       <ChatHeader />
-      <div className="flex-1 px-6 overflow-y-auto py-8">
+      <div className="flex-1 px-6 overflow-y-auto overflow-x-hidden py-8" onClick={handleChatContainerClick}>
         {messages.length > 0 && !isMessagesLoading ? (
           <div className="max-w-3xl mx-auto space-y-6">
-            {messages.map((msg) => (
-              <div key={msg._id} className={`chat ${msg.senderId === authUser._id ? "chat-end" : "chat-start"} group flex items-center gap-2 ${
-                msg.senderId === authUser._id ? "flex-row-reverse" : "flex-row"
-              }`}>
-                <div
-                  className={`chat-bubble relative ${
-                    msg.senderId === authUser._id ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-200"
-                  }`}>
-                  {msg.image && (
-                    <img 
-                      src={msg.image} 
-                      alt="Shared" 
-                      className="rounded-lg h-48 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
-                      onClick={() => handleImageClick(msg.image)}
-                    />
-                  )}
-                  {msg.text && <p className="mt-2">{msg.text}</p>}
-                  <p className="text-xs mt-1 opacity-75 flex items-center gap-1">
-                    {new Date(msg.createdAt).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
+            {messages.map((msg, index) => {
+              const isLastMessage = index === messages.length - 1;
+              const isOwnMessage = msg.senderId === authUser._id;
+              
+              return (
+              <div key={msg._id} className="flex flex-col gap-1 w-full">
+                <div className={`chat ${isOwnMessage ? "chat-end" : "chat-start"} group flex items-center gap-2 ${
+                  isOwnMessage ? "flex-row-reverse" : "flex-row"
+                }`}>
+                  <div
+                    className={`chat-bubble relative ${
+                      isOwnMessage ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-200"
+                    }`}
+                    onMouseEnter={(e) => handleMouseEnter(e, msg._id)}
+                    onMouseLeave={handleMouseLeave}>
+                    {msg.image && (
+                      <img 
+                        src={msg.image} 
+                        alt="Shared" 
+                        className="rounded-lg h-48 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                        onClick={() => handleImageClick(msg.image)}
+                      />
+                    )}
+                    {msg.text && <p className="mt-2">{msg.text}</p>}
+                  </div>
+                  
+                  {/* Three-dot menu outside bubble */}
+                  <MessageOptionsMenu 
+                    onDelete={() => handleDeleteClick(msg._id, isOwnMessage)}
+                  />
                 </div>
                 
-                {/* Three-dot menu outside bubble */}
-                <MessageOptionsMenu 
-                  onDelete={() => handleDeleteClick(msg._id, msg.senderId === authUser._id)}
-                />
+                {/* Status text below message - only for sender's last message */}
+                {isLastMessage && isOwnMessage && (
+                  <div className="text-xs opacity-60 px-4 max-w-full truncate text-right">
+                    {msg.read 
+                      ? `Seen ${getTimeAgo(msg.updatedAt)}` 
+                      : `Sent ${getTimeAgo(msg.createdAt)}`
+                    }
+                  </div>
+                )}
               </div>
-            ))}
+            );
+            })}
             {/* scroll target */}
             <div ref={messageEndRef}></div>
           </div>
@@ -168,6 +211,24 @@ function ChatContainer() {
         images={messageImages}
         initialIndex={imageViewerState.initialIndex}
       />
+
+      {/* Tooltip Portal - renders outside overflow constraints */}
+      {hoveredMessageId &&
+        createPortal(
+          <div
+            className="fixed px-2 py-1 bg-slate-950 text-white text-xs rounded whitespace-nowrap pointer-events-none transition-opacity"
+            style={{
+              top: `${tooltipPosition.top}px`,
+              left: `${tooltipPosition.left}px`,
+              transform: "translateX(-50%)",
+              zIndex: 9999,
+            }}>
+            {formatTimestamp(
+              messages.find((m) => m._id === hoveredMessageId)?.createdAt
+            )}
+          </div>,
+          document.body
+        )}
     </>
   );
 }

@@ -35,7 +35,24 @@ export const getChatPartners = async (req, res) => {
 
     const chatPartners = await User.find({ _id: { $in: chatPartnerIds } }).select("-password");
 
-    res.status(200).json(chatPartners);
+    // Calculate unread message count for each chat partner
+    const chatPartnersWithUnread = await Promise.all(
+      chatPartners.map(async (partner) => {
+        const unreadCount = await Message.countDocuments({
+          senderId: partner._id,
+          receiverId: loggedInUserId,
+          read: false,
+          deletedForEveryone: { $ne: true },
+          deletedFor: { $ne: loggedInUserId },
+        });
+        return {
+          ...partner.toObject(),
+          unreadCount,
+        };
+      })
+    );
+
+    res.status(200).json(chatPartnersWithUnread);
   } catch (error) {
     console.log("Error in getChatPartners controller", error);
     res.status(500).json({ message: "Internal server error" });
@@ -116,6 +133,8 @@ export const sendMessage = async (req, res) => {
     const receiverSocketId = getReceiverSocketId(receiverId);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", newMessage);
+      // Notify receiver to update unread counts with sender info
+      io.to(receiverSocketId).emit("unreadCountUpdate", { senderId: senderId.toString() });
     }
 
     res.status(201).json(newMessage);
@@ -197,3 +216,41 @@ export const deleteMessageForMe = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const markMessagesAsRead = async (req, res) => {
+  try {
+    const { id: userToChatId } = req.params;
+    const myId = req.user._id;
+
+    // Mark all unread messages from the other user as read
+    const result = await Message.updateMany(
+      {
+        senderId: userToChatId,
+        receiverId: myId,
+        read: false,
+      },
+      {
+        $set: { read: true },
+      }
+    );
+
+    // If messages were marked as read, notify the sender to update their UI
+    if (result.modifiedCount > 0) {
+      const senderSocketId = getReceiverSocketId(userToChatId);
+      if (senderSocketId) {
+        // Notify sender that their messages have been read
+        io.to(senderSocketId).emit("messagesRead", { 
+          readBy: myId.toString(),
+          readAt: new Date().toISOString() 
+        });
+        // Also update unread count
+        io.to(senderSocketId).emit("unreadCountUpdate");
+      }
+    }
+
+    res.status(200).json({ message: "Messages marked as read" });
+  } catch (error) {
+    console.log("Error in markMessagesAsRead controller", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};;

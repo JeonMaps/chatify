@@ -12,7 +12,7 @@ function ChatsList() {
     getMyChatPartners();
   }, [getMyChatPartners]);
 
-  if (isUsersLoading) return <UsersLoadingSkeleton />;
+  // if (isUsersLoading) return <UsersLoadingSkeleton />;
   if (chats.length === 0) return <NoChatsFound />;
 
   return (
@@ -20,7 +20,7 @@ function ChatsList() {
       {chats.map((chat) => (
         <div
           key={chat._id}
-          className="bg-cyan-500/10 p-4 rounded-lg cursor-pointer hover:bg-cyan-500/20 transition-colors"
+          className="bg-cyan-500/10 p-4 rounded-lg cursor-pointer hover:bg-cyan-500/20 transition-colors relative"
           onClick={() => setSelectedUser(chat)}>
           <div className="flex items-center gap-3">
 
@@ -30,6 +30,13 @@ function ChatsList() {
               </div>
             </div>
             <h4 className="text-slate-200 font-medium truncate">{chat.fullName}</h4>
+            
+            {/* Unread message badge */}
+            {chat.unreadCount > 0 && (
+              <div className="ml-auto bg-cyan-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5">
+                {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+              </div>
+            )}
           </div>
         </div>
       ))}
