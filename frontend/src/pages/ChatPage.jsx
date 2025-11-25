@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useChatStore } from "../store/useChatStore.js";
 import BorderAnimatedContainer from "../components/BorderAnimatedContainer.jsx";
@@ -10,7 +10,32 @@ import ChatContainer from "../components/ChatContainer.jsx";
 import NoConversationPlaceholder from "../components/NoConversationPlaceholder.jsx";
 
 function ChatPage() {
-  const { activeTab, selectedUser } = useChatStore();
+  const { socket } = useAuthStore();
+  const { activeTab, selectedUser, updateUnreadCount } = useChatStore();
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // Listen for unread count updates globally
+    const handleUnreadUpdate = (data) => {
+      const { senderId } = data || {};
+      
+      // Only update unread count if the conversation is NOT currently open
+      if (!selectedUser || selectedUser._id !== senderId) {
+        if (senderId) {
+          updateUnreadCount(senderId, true); // increment
+        }
+      }
+      // If conversation is open, messages are already marked as read
+    };
+
+    socket.on("unreadCountUpdate", handleUnreadUpdate);
+
+    return () => {
+      socket.off("unreadCountUpdate", handleUnreadUpdate);
+    };
+  }, [socket, selectedUser, updateUnreadCount]);
+
   return (
     <div className="relative w-full max-w-6xl h-[800px]">
       <BorderAnimatedContainer>

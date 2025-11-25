@@ -21,6 +21,29 @@ export const useChatStore = create((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedUser: (selectedUser) => set({ selectedUser }),
 
+  updateUnreadCount: (userId, increment = true) => {
+    const { isSoundEnabled } = get();
+    const currentChats = get().chats;
+    const updatedChats = currentChats.map((chat) => {
+      if (chat._id === userId) {
+        return {
+          ...chat,
+          unreadCount: increment ? (chat.unreadCount || 0) + 1 : 0,
+          
+        };
+      }
+      return chat;
+    });
+    set({ chats: updatedChats });
+
+    // Play notification sound when unread count increases
+    if (increment && isSoundEnabled) {
+      const notificationSound = new Audio("/sounds/notification.mp3");
+      notificationSound.currentTime = 0;
+      notificationSound.play().catch((e) => console.log("Audio play failed:", e));
+    }
+  },
+
   getAllContacts: async () => {
     set({ isUsersLoading: true });
     try {
@@ -95,7 +118,7 @@ export const useChatStore = create((set, get) => ({
       //check first if selected user is the sender of the new message
       const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
       if (!isMessageSentFromSelectedUser) return;
-      
+
       const currentMessages = get().messages;
       set({ messages: [...currentMessages, newMessage] });
 
@@ -109,7 +132,24 @@ export const useChatStore = create((set, get) => ({
     //listen to messageDeletedForEveryone event
     socket.on("messageDeletedForEveryone", (messageId) => {
       const currentMessages = get().messages;
-      set({ messages: currentMessages.filter(msg => msg._id !== messageId) });
+      set({ messages: currentMessages.filter((msg) => msg._id !== messageId) });
+    });
+
+    //listen to messagesRead event (when receiver reads your messages)
+    socket.on("messagesRead", (data) => {
+      const { readBy, readAt } = data;
+      //check if the messages that were read are from the current conversation
+      if (readBy === selectedUser._id) {
+        const currentMessages = get().messages;
+        const updatedMessages = currentMessages.map((msg) => {
+          //mark all messages sent to readBy user as read
+          if (msg.receiverId === readBy && !msg.read) {
+            return { ...msg, read: true, updatedAt: readAt };
+          }
+          return msg;
+        });
+        set({ messages: updatedMessages });
+      }
     });
   },
 
@@ -117,6 +157,7 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
     socket.off("newMessage");
     socket.off("messageDeletedForEveryone");
+    socket.off("messagesRead");
   },
 
   deleteMessageForEveryone: async (messageId) => {
@@ -124,7 +165,7 @@ export const useChatStore = create((set, get) => ({
       await axiosInstance.delete(`/messages/delete-for-everyone/${messageId}`);
       // Remove message from UI immediately
       const currentMessages = get().messages;
-      set({ messages: currentMessages.filter(msg => msg._id !== messageId) });
+      set({ messages: currentMessages.filter((msg) => msg._id !== messageId) });
       toast.success("Message deleted for everyone");
     } catch (error) {
       toast.error(error.response?.data?.message || "Error occurred while deleting message.");
@@ -136,10 +177,29 @@ export const useChatStore = create((set, get) => ({
       await axiosInstance.delete(`/messages/delete-for-me/${messageId}`);
       // Remove message from UI immediately
       const currentMessages = get().messages;
-      set({ messages: currentMessages.filter(msg => msg._id !== messageId) });
+      set({ messages: currentMessages.filter((msg) => msg._id !== messageId) });
       toast.success("Message deleted for you");
     } catch (error) {
       toast.error(error.response?.data?.message || "Error occurred while deleting message.");
     }
-  }
+  },
+
+  markMessagesAsRead: async (userId) => {
+    try {
+      await axiosInstance.patch(`/messages/mark-read/${userId}`);
+      // Update messages in state to mark them as read
+      const currentMessages = get().messages;
+      const updatedMessages = currentMessages.map((msg) => {
+        if (msg.senderId === userId && !msg.read) {
+          return { ...msg, read: true, updatedAt: new Date().toISOString() };
+        }
+        return msg;
+      });
+      set({ messages: updatedMessages });
+      // Refresh chat list to update unread counts
+      get().getMyChatPartners();
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+    }
+  },
 }));

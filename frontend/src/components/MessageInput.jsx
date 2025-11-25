@@ -14,7 +14,18 @@ function MessageInput() {
 
   const fileInputRef = useRef(null);
 
-  const { sendMessage, isSoundEnabled } = useChatStore();
+  const { sendMessage, isSoundEnabled, selectedUser, markMessagesAsRead, updateUnreadCount } = useChatStore();
+
+  const handleTextChange = (e) => {
+    setText(e.target.value);
+    isSoundEnabled && playRandomKeyStrokeSound();
+    
+    // Mark messages as read when user starts typing
+    if (selectedUser?._id && e.target.value.length === 1) {
+      markMessagesAsRead(selectedUser._id);
+      updateUnreadCount(selectedUser._id, false);
+    }
+  };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -80,10 +91,7 @@ function MessageInput() {
           <input
             type="text"
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              isSoundEnabled && playRandomKeyStrokeSound();
-            }}
+            onChange={handleTextChange}
             maxLength={MAX_MESSAGE_LENGTH}
             placeholder="Type your message..."
             className="w-full bg-slate-800/50 border border-slate-700/50 rounded-lg py-2 px-4 pr-16"
