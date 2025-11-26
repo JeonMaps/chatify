@@ -138,37 +138,84 @@ function ChatContainer() {
       <ChatHeader />
       <div className="flex-1 px-6 overflow-y-auto overflow-x-hidden py-8" onClick={handleChatContainerClick}>
         {messages.length > 0 && !isMessagesLoading ? (
-          <div className="max-w-3xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-0.5">
             {messages.map((msg, index) => {
               const isLastMessage = index === messages.length - 1;
               const isOwnMessage = msg.senderId === authUser._id;
               
+              // Check previous and next messages for grouping
+              const prevMsg = messages[index - 1];
+              const nextMsg = messages[index + 1];
+              const isFirstInGroup = !prevMsg || prevMsg.senderId !== msg.senderId;
+              const isLastInGroup = !nextMsg || nextMsg.senderId !== msg.senderId;
+              const shouldShowAvatar = !isOwnMessage && isLastInGroup;
+              
+              // Determine border radius based on position in group
+              let borderRadiusClass = "";
+              if (isFirstInGroup && isLastInGroup) {
+                // Single message in group - fully rounded
+                borderRadiusClass = "rounded-2xl";
+              } else if (isFirstInGroup) {
+                // First in group - rounded top, semi-rounded bottom
+                borderRadiusClass = isOwnMessage 
+                  ? "rounded-t-2xl rounded-bl-2xl rounded-br-md" 
+                  : "rounded-t-2xl rounded-br-2xl rounded-bl-md";
+              } else if (isLastInGroup) {
+                // Last in group - semi-rounded top, rounded bottom
+                borderRadiusClass = isOwnMessage 
+                  ? "rounded-b-2xl rounded-tl-2xl rounded-tr-md" 
+                  : "rounded-b-2xl rounded-tr-2xl rounded-tl-md";
+              } else {
+                // Middle of group - semi-rounded on both sides
+                borderRadiusClass = isOwnMessage 
+                  ? "rounded-l-2xl rounded-r-md" 
+                  : "rounded-r-2xl rounded-l-md";
+              }
+              
               return (
               <div key={msg._id} className="flex flex-col gap-1 w-full">
-                <div className={`chat ${isOwnMessage ? "chat-end" : "chat-start"} group flex items-center gap-2 ${
-                  isOwnMessage ? "flex-row-reverse" : "flex-row"
+                <div className={`group flex items-end gap-1 ${
+                  isOwnMessage ? "flex-row-reverse justify-start" : "flex-row justify-start"
                 }`}>
-                  <div
-                    className={`chat-bubble relative ${
-                      isOwnMessage ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-200"
-                    }`}
-                    onMouseEnter={(e) => handleMouseEnter(e, msg._id)}
-                    onMouseLeave={handleMouseLeave}>
-                    {msg.image && (
-                      <img 
-                        src={msg.image} 
-                        alt="Shared" 
-                        className="rounded-lg h-48 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
-                        onClick={() => handleImageClick(msg.image)}
-                      />
-                    )}
-                    {msg.text && <p className="mt-2">{msg.text}</p>}
-                  </div>
+                  {/* Avatar - only show for partner's last message in consecutive group */}
+                  {!isOwnMessage && (
+                    <div className="w-6 h-6 flex-shrink-0">
+                      {shouldShowAvatar ? (
+                        <img
+                          src={selectedUser.profilePic || "/avatar.png"}
+                          alt={selectedUser.fullName}
+                          className="w-6 h-6 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-6 h-6" /> // Spacer to maintain alignment
+                      )}
+                    </div>
+                  )}
                   
-                  {/* Three-dot menu outside bubble */}
-                  <MessageOptionsMenu 
-                    onDelete={() => handleDeleteClick(msg._id, isOwnMessage)}
-                  />
+                  {/* Message bubble and menu wrapper */}
+                  <div className={`flex items-center gap-1 ${isOwnMessage ? "flex-row-reverse" : "flex-row"}`}>
+                    <div
+                      className={`relative px-4 py-2 max-w-xs ${borderRadiusClass} ${
+                        isOwnMessage ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-200"
+                      }`}
+                      onMouseEnter={(e) => handleMouseEnter(e, msg._id)}
+                      onMouseLeave={handleMouseLeave}>
+                      {msg.image && (
+                        <img 
+                          src={msg.image} 
+                          alt="Shared" 
+                          className="rounded-lg h-48 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                          onClick={() => handleImageClick(msg.image)}
+                        />
+                      )}
+                      {msg.text && <p className={msg.image ? "mt-2" : ""}>{msg.text}</p>}
+                    </div>
+                    
+                    {/* Three-dot menu outside bubble */}
+                    <MessageOptionsMenu 
+                      onDelete={() => handleDeleteClick(msg._id, isOwnMessage)}
+                    />
+                  </div>
                 </div>
                 
                 {/* Status text below message - only for sender's last message */}
