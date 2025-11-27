@@ -41,7 +41,7 @@ jobs:
     - name: Run unit tests
       run: npm run test:unit
       env:
-        NODE_ENV: test
+        NODE_ENV: env
         MONGO_URI: ${{ secrets.MONGO_URI }}
         JWT_SECRET: ${{ secrets.JWT_SECRET }}
         CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
