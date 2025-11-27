@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "mocha test/**/*.test.js --timeout 10000 --exit",
+    "test:unit": "mocha test/unit/**/*.test.js --timeout 10000 --exit",
+    "test:watch": "mocha test/**/*.test.js --watch --timeout 10000"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +29,9 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
+    "chai": "^6.2.1",
+    "chai-http": "^5.1.2",
+    "mocha": "^11.7.5",
     "nodemon": "^3.1.11"
   }
 }
