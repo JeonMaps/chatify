@@ -3,7 +3,8 @@ import { resendClient, sender } from "../lib/resend.js";
 
 export const sendWelcomeEmail = async (email, name, clientURL) => {
   const { data, error } = await resendClient.emails.send({
-    from: `${sender.name} <${sender.email}>`,
+    // from: `${sender.name} <${sender.email}>`, // hardcoded for now
+    from: "Jeon Maps <jeonmapatac@gmail.com>",
     // to: email, // Uncomment this line to send to the actual user email
     to: "jeonmapatac@gmail.com", // hardcoded since i can only send to verified emails in resend free tier
     subject: "Welcome to Chatify!",
@@ -14,6 +15,4 @@ export const sendWelcomeEmail = async (email, name, clientURL) => {
     console.error("Error sending welcome email:", error);
     throw new Error("Failed to send welcome email");
   }
-
-  console.log("Welcome Email sent successfully", data);
 };
