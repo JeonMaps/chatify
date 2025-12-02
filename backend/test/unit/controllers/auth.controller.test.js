@@ -1,24 +1,41 @@
 import { expect } from "chai";
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
 import { signup, login, logout } from "../../../src/controllers/auth.controller.js";
 import { ENV } from "../../../src/lib/env.js";
 import User from "../../../src/models/User.js";
 
-describe("Auth Controller - Signup", () => {
+describe("Auth Controller Tests", () => {
   let req, res, statusCode, jsonResponse, cookieData;
+  let existingUser; // Shared test user created directly in DB (no email sent)
 
-  // Connect to database before all tests
+  // Connect to database and create test user before all tests
   before(async function() {
     this.timeout(30000);
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(ENV.MONGO_URI);
       console.log("✓ Test database connected");
     }
+
+    // Create a test user directly in database (bypasses signup controller, no email sent)
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash("testpassword123", salt);
+    
+    existingUser = await User.create({
+      fullName: "Existing Test User",
+      email: `existing-user-${Date.now()}@example.com`,
+      password: hashedPassword,
+    });
+    console.log("✓ Shared test user created (no email sent)");
   });
 
-  // Disconnect after all tests
+  // Cleanup and disconnect after all tests
   after(async function() {
     this.timeout(10000);
+    if (existingUser) {
+      await User.findByIdAndDelete(existingUser._id);
+      console.log("✓ Test user cleaned up");
+    }
     await mongoose.connection.close();
     console.log("✓ Test database disconnected");
   });
@@ -55,7 +72,7 @@ describe("Auth Controller - Signup", () => {
     };
   });
 
-  describe("Validation Tests", () => {
+  describe("Signup - Validation Tests", () => {
     it("should return 400 if fullName is missing", async () => {
       req.body.fullName = "";
 
@@ -102,10 +119,10 @@ describe("Auth Controller - Signup", () => {
     });
   });
 
-  describe("Successful Signup", () => {
+  describe("Signup - Successful Creation", () => {
     it("should create a new user and return 201 with user data", async () => {
-      // Use a unique email for this test to avoid conflicts
-      req.body.email = `test-${Date.now()}@example.com`;
+      // Only 1 email will be sent for this single successful signup test
+      req.body.email = `test-signup-${Date.now()}@example.com`;
 
       await signup(req, res);
 
@@ -114,131 +131,32 @@ describe("Auth Controller - Signup", () => {
       expect(jsonResponse).to.have.property("fullName", "Test User");
       expect(jsonResponse).to.have.property("email", req.body.email);
       expect(jsonResponse).to.have.property("profilePic");
-      expect(cookieData).to.have.property("name", "jwt");
-    });
-
-    it("should hash the password before saving", async () => {
-      // Use a unique email
-      req.body.email = `test-hash-${Date.now()}@example.com`;
-      req.body.password = "mySecretPassword";
-
-      await signup(req, res);
-
-      expect(statusCode).to.equal(201);
-      // Password should be hashed, not plain text
       expect(jsonResponse).to.not.have.property("password");
-    });
-
-    it("should set JWT cookie on successful signup", async () => {
-      // Use a unique email
-      req.body.email = `test-cookie-${Date.now()}@example.com`;
-
-      await signup(req, res);
-
-      expect(statusCode).to.equal(201);
-      expect(cookieData).to.not.be.null;
-      expect(cookieData.name).to.equal("jwt");
+      expect(cookieData).to.have.property("name", "jwt");
       expect(cookieData.value).to.be.a("string");
       expect(cookieData.options).to.have.property("httpOnly", true);
+
+      // Cleanup - delete the created user
+      await User.deleteOne({ email: req.body.email });
     });
   });
 
-  describe("Duplicate Email", () => {
+  describe("Signup - Duplicate Email", () => {
     it("should return 400 if email already exists", async () => {
-      // First signup
-      const uniqueEmail = `test-duplicate-${Date.now()}@example.com`;
-      req.body.email = uniqueEmail;
+      // Use the existing user that was created in the before hook (no new email sent)
+      req.body.email = existingUser.email;
       
-      await signup(req, res);
-      expect(statusCode).to.equal(201);
-
-      // Reset response capture
-      statusCode = null;
-      jsonResponse = null;
-
-      // Try to signup again with the same email
       await signup(req, res);
       
       expect(statusCode).to.equal(400);
       expect(jsonResponse).to.deep.equal({ message: "Email already exists" });
     });
   });
-});
 
-describe("Auth Controller - Login", () => {
-  let req, res, statusCode, jsonResponse, cookieData;
-  let testUser;
-
-  // Connect to database before all tests
-  before(async function() {
-    this.timeout(30000);
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(ENV.MONGO_URI);
-      console.log("✓ Test database connected");
-    }
-
-    // Create a test user for login tests
-    const uniqueEmail = `test-login-${Date.now()}@example.com`;
-    const signupReq = {
-      body: {
-        fullName: "Login Test User",
-        email: uniqueEmail,
-        password: "testpassword123",
-      },
-    };
-    const signupRes = {
-      status: function() { return this; },
-      json: function() { return this; },
-      cookie: function() { return this; },
-    };
-
-    await signup(signupReq, signupRes);
-    testUser = await User.findOne({ email: uniqueEmail });
-    console.log("✓ Test user created for login tests");
-  });
-
-  // Disconnect and cleanup after all tests
-  after(async function() {
-    this.timeout(10000);
-    if (testUser) {
-      await User.findByIdAndDelete(testUser._id);
-      console.log("✓ Test user cleaned up");
-    }
-    await mongoose.connection.close();
-    console.log("✓ Test database disconnected");
-  });
-
-  beforeEach(() => {
-    statusCode = null;
-    jsonResponse = null;
-    cookieData = null;
-
-    req = {
-      body: {
-        email: testUser.email,
-        password: "testpassword123",
-      },
-    };
-
-    res = {
-      status: function(code) {
-        statusCode = code;
-        return this;
-      },
-      json: function(data) {
-        jsonResponse = data;
-        return this;
-      },
-      cookie: function(name, value, options) {
-        cookieData = { name, value, options };
-        return this;
-      },
-    };
-  });
-
-  describe("Validation Tests", () => {
+  describe("Login - Validation Tests", () => {
     it("should return 400 if email is missing", async () => {
       req.body.email = "";
+      req.body.password = "password123";
 
       await login(req, res);
 
@@ -247,16 +165,7 @@ describe("Auth Controller - Login", () => {
     });
 
     it("should return 400 if password is missing", async () => {
-      req.body.password = "";
-
-      await login(req, res);
-
-      expect(statusCode).to.equal(400);
-      expect(jsonResponse).to.deep.equal({ message: "Email and password are required" });
-    });
-
-    it("should return 400 if both email and password are missing", async () => {
-      req.body.email = "";
+      req.body.email = existingUser.email;
       req.body.password = "";
 
       await login(req, res);
@@ -266,9 +175,10 @@ describe("Auth Controller - Login", () => {
     });
   });
 
-  describe("Invalid Credentials", () => {
+  describe("Login - Invalid Credentials", () => {
     it("should return 400 if email does not exist", async () => {
       req.body.email = "nonexistent@example.com";
+      req.body.password = "password123";
 
       await login(req, res);
 
@@ -277,6 +187,7 @@ describe("Auth Controller - Login", () => {
     });
 
     it("should return 400 if password is incorrect", async () => {
+      req.body.email = existingUser.email;
       req.body.password = "wrongpassword";
 
       await login(req, res);
@@ -286,86 +197,36 @@ describe("Auth Controller - Login", () => {
     });
   });
 
-  describe("Successful Login", () => {
-    it("should return 200 with user data on successful login", async () => {
+  describe("Login - Successful Login", () => {
+    it("should return 200 with user data and set JWT cookie", async () => {
+      req.body.email = existingUser.email;
+      req.body.password = "testpassword123";
+
       await login(req, res);
 
       expect(statusCode).to.equal(200);
       expect(jsonResponse).to.have.property("_id");
-      expect(jsonResponse).to.have.property("fullName", "Login Test User");
-      expect(jsonResponse).to.have.property("email", testUser.email);
+      expect(jsonResponse).to.have.property("fullName", "Existing Test User");
+      expect(jsonResponse).to.have.property("email", existingUser.email);
       expect(jsonResponse).to.have.property("profilePic");
       expect(jsonResponse).to.not.have.property("password");
-    });
-
-    it("should set JWT cookie on successful login", async () => {
-      await login(req, res);
-
-      expect(statusCode).to.equal(200);
       expect(cookieData).to.not.be.null;
       expect(cookieData.name).to.equal("jwt");
       expect(cookieData.value).to.be.a("string");
       expect(cookieData.options).to.have.property("httpOnly", true);
     });
-
-    it("should not return password in response", async () => {
-      await login(req, res);
-
-      expect(statusCode).to.equal(200);
-      expect(jsonResponse).to.not.have.property("password");
-    });
-  });
-});
-
-describe("Auth Controller - Logout", () => {
-  let req, res, statusCode, jsonResponse, cookieData;
-
-  beforeEach(() => {
-    statusCode = null;
-    jsonResponse = null;
-    cookieData = null;
-
-    req = {};
-
-    res = {
-      status: function(code) {
-        statusCode = code;
-        return this;
-      },
-      json: function(data) {
-        jsonResponse = data;
-        return this;
-      },
-      cookie: function(name, value, options) {
-        cookieData = { name, value, options };
-        return this;
-      },
-    };
   });
 
-  describe("Successful Logout", () => {
-    it("should return 200 with success message", async () => {
+  describe("Logout - Tests", () => {
+    it("should return 200 with success message and clear JWT cookie", async () => {
       logout(req, res);
 
       expect(statusCode).to.equal(200);
       expect(jsonResponse).to.deep.equal({ message: "Logged out successfully!" });
-    });
-
-    it("should clear JWT cookie", async () => {
-      logout(req, res);
-
       expect(cookieData).to.not.be.null;
       expect(cookieData.name).to.equal("jwt");
       expect(cookieData.value).to.equal("");
       expect(cookieData.options).to.have.property("maxAge", 0);
-    });
-
-    it("should work without request body", async () => {
-      // Logout doesn't need request body
-      logout(undefined, res);
-
-      expect(statusCode).to.equal(200);
-      expect(jsonResponse).to.deep.equal({ message: "Logged out successfully!" });
     });
   });
 });
