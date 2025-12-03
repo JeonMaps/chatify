@@ -32,15 +32,3 @@ jobs:
       - name: Run tests
         run: npm run test:run
         working-directory: ./frontend
-
-      - name: Generate coverage report
-        run: npm run test:coverage
-        working-directory: ./frontend
-
-      - name: Upload coverage to Codecov (optional)
-        if: matrix.node-version == '20.x'
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./frontend/coverage/coverage-final.json
-          flags: frontend
-          fail_ci_if_error: false
