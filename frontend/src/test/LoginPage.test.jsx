@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import LoginPage from './LoginPage';
+import LoginPage from '../pages/LoginPage.jsx';
 import { useAuthStore } from '../store/useAuthStore.js';
 
 // Mock the auth store
