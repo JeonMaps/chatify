@@ -253,4 +253,135 @@ export const markMessagesAsRead = async (req, res) => {
     console.log("Error in markMessagesAsRead controller", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
+};
+
+export const pinMessage = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    // Check if user is part of this conversation
+    if (
+      message.senderId.toString() !== userId.toString() &&
+      message.receiverId.toString() !== userId.toString()
+    ) {
+      return res.status(403).json({ message: "You are not part of this conversation" });
+    }
+
+    // Check if message is already pinned
+    if (message.isPinned) {
+      return res.status(400).json({ message: "Message is already pinned" });
+    }
+
+    // Pin the message
+    message.isPinned = true;
+    message.pinnedAt = new Date();
+    message.pinnedBy = userId;
+    await message.save();
+
+    // Notify the other user via socket
+    const otherUserId = message.senderId.toString() === userId.toString() 
+      ? message.receiverId.toString() 
+      : message.senderId.toString();
+    const otherUserSocketId = getReceiverSocketId(otherUserId);
+    
+    if (otherUserSocketId) {
+      io.to(otherUserSocketId).emit("messagePinned", message);
+    }
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.log("Error in pinMessage controller", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const unpinMessage = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    // Check if user is part of this conversation
+    if (
+      message.senderId.toString() !== userId.toString() &&
+      message.receiverId.toString() !== userId.toString()
+    ) {
+      return res.status(403).json({ message: "You are not part of this conversation" });
+    }
+
+    // Check if message is pinned
+    if (!message.isPinned) {
+      return res.status(400).json({ message: "Message is not pinned" });
+    }
+
+    // Unpin the message
+    message.isPinned = false;
+    message.pinnedAt = null;
+    message.pinnedBy = null;
+    await message.save();
+
+    // Notify the other user via socket
+    const otherUserId = message.senderId.toString() === userId.toString() 
+      ? message.receiverId.toString() 
+      : message.senderId.toString();
+    const otherUserSocketId = getReceiverSocketId(otherUserId);
+    
+    if (otherUserSocketId) {
+      io.to(otherUserSocketId).emit("messageUnpinned", messageId);
+    }
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.log("Error in unpinMessage controller", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const getPinnedMessages = async (req, res) => {
+  try {
+    const { id: userToChatId } = req.params;
+    const myId = req.user._id;
+
+    // Find all pinned messages between the two users
+    const pinnedMessages = await Message.find({
+      $and: [
+        {
+          $or: [
+            { senderId: myId, receiverId: userToChatId },
+            { senderId: userToChatId, receiverId: myId },
+          ]
+        },
+        { isPinned: true },
+        {
+          $or: [
+            { deletedForEveryone: { $ne: true } },
+            { deletedForEveryone: { $exists: false } }
+          ]
+        },
+        {
+          $or: [
+            { deletedFor: { $ne: myId } },
+            { deletedFor: { $exists: false } }
+          ]
+        }
+      ]
+    }).sort({ pinnedAt: -1 }); // Sort by most recently pinned first
+
+    res.status(200).json(pinnedMessages);
+  } catch (error) {
+    console.log("Error in getPinnedMessages controller", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
 };;
