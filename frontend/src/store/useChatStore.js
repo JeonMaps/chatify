@@ -7,10 +7,12 @@ export const useChatStore = create((set, get) => ({
   allContacts: [],
   chats: [],
   messages: [],
+  pinnedMessages: [],
   activeTab: "chats",
   selectedUser: null,
   isUsersLoading: false,
   isMessagesLoading: false,
+  isPinnedMessagesLoading: false,
   isSoundEnabled: JSON.parse(localStorage.getItem("isSoundEnabled")) === true,
 
   toggleSound: () => {
@@ -80,6 +82,18 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  getPinnedMessages: async (userId) => {
+    set({ isPinnedMessagesLoading: true });
+    try {
+      const res = await axiosInstance.get(`/messages/pinned/${userId}`);
+      set({ pinnedMessages: res.data });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Error occurred while fetching pinned messages.");
+    } finally {
+      set({ isPinnedMessagesLoading: false });
+    }
+  },
+
   sendMessage: async (messageData) => {
     const { selectedUser, messages } = get();
     const { authUser } = useAuthStore.getState();
@@ -132,7 +146,11 @@ export const useChatStore = create((set, get) => ({
     //listen to messageDeletedForEveryone event
     socket.on("messageDeletedForEveryone", (messageId) => {
       const currentMessages = get().messages;
-      set({ messages: currentMessages.filter((msg) => msg._id !== messageId) });
+      const currentPinnedMessages = get().pinnedMessages;
+      set({ 
+        messages: currentMessages.filter((msg) => msg._id !== messageId),
+        pinnedMessages: currentPinnedMessages.filter((msg) => msg._id !== messageId)
+      });
     });
 
     //listen to messagesRead event (when receiver reads your messages)
@@ -151,6 +169,40 @@ export const useChatStore = create((set, get) => ({
         set({ messages: updatedMessages });
       }
     });
+
+    //listen to messagePinned event
+    socket.on("messagePinned", (pinnedMessage) => {
+      const currentMessages = get().messages;
+      const currentPinnedMessages = get().pinnedMessages;
+      
+      // Update the message in the messages array
+      const updatedMessages = currentMessages.map((msg) => 
+        msg._id === pinnedMessage._id ? pinnedMessage : msg
+      );
+      
+      // Add to pinned messages array at the beginning (most recent first)
+      set({ 
+        messages: updatedMessages,
+        pinnedMessages: [pinnedMessage, ...currentPinnedMessages]
+      });
+    });
+
+    //listen to messageUnpinned event
+    socket.on("messageUnpinned", (messageId) => {
+      const currentMessages = get().messages;
+      const currentPinnedMessages = get().pinnedMessages;
+      
+      // Update the message in the messages array
+      const updatedMessages = currentMessages.map((msg) => 
+        msg._id === messageId ? { ...msg, isPinned: false, pinnedAt: null, pinnedBy: null } : msg
+      );
+      
+      // Remove from pinned messages array
+      set({ 
+        messages: updatedMessages,
+        pinnedMessages: currentPinnedMessages.filter((msg) => msg._id !== messageId)
+      });
+    });
   },
 
   unsubscribeFromMessages: () => {
@@ -158,6 +210,8 @@ export const useChatStore = create((set, get) => ({
     socket.off("newMessage");
     socket.off("messageDeletedForEveryone");
     socket.off("messagesRead");
+    socket.off("messagePinned");
+    socket.off("messageUnpinned");
   },
 
   deleteMessageForEveryone: async (messageId) => {
@@ -165,7 +219,11 @@ export const useChatStore = create((set, get) => ({
       await axiosInstance.delete(`/messages/delete-for-everyone/${messageId}`);
       // Remove message from UI immediately
       const currentMessages = get().messages;
-      set({ messages: currentMessages.filter((msg) => msg._id !== messageId) });
+      const currentPinnedMessages = get().pinnedMessages;
+      set({ 
+        messages: currentMessages.filter((msg) => msg._id !== messageId),
+        pinnedMessages: currentPinnedMessages.filter((msg) => msg._id !== messageId)
+      });
       toast.success("Message deleted for everyone");
     } catch (error) {
       toast.error(error.response?.data?.message || "Error occurred while deleting message.");
@@ -177,10 +235,64 @@ export const useChatStore = create((set, get) => ({
       await axiosInstance.delete(`/messages/delete-for-me/${messageId}`);
       // Remove message from UI immediately
       const currentMessages = get().messages;
-      set({ messages: currentMessages.filter((msg) => msg._id !== messageId) });
+      const currentPinnedMessages = get().pinnedMessages;
+      set({ 
+        messages: currentMessages.filter((msg) => msg._id !== messageId),
+        pinnedMessages: currentPinnedMessages.filter((msg) => msg._id !== messageId)
+      });
       toast.success("Message deleted for you");
     } catch (error) {
       toast.error(error.response?.data?.message || "Error occurred while deleting message.");
+    }
+  },
+
+  pinMessage: async (messageId) => {
+    try {
+      const res = await axiosInstance.patch(`/messages/pin/${messageId}`);
+      const pinnedMessage = res.data;
+      
+      const currentMessages = get().messages;
+      const currentPinnedMessages = get().pinnedMessages;
+      
+      // Update the message in the messages array
+      const updatedMessages = currentMessages.map((msg) => 
+        msg._id === messageId ? pinnedMessage : msg
+      );
+      
+      // Add to pinned messages array at the beginning (most recent first)
+      set({ 
+        messages: updatedMessages,
+        pinnedMessages: [pinnedMessage, ...currentPinnedMessages]
+      });
+      
+      toast.success("Message pinned");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Error occurred while pinning message.");
+    }
+  },
+
+  unpinMessage: async (messageId) => {
+    try {
+      const res = await axiosInstance.patch(`/messages/unpin/${messageId}`);
+      const unpinnedMessage = res.data;
+      
+      const currentMessages = get().messages;
+      const currentPinnedMessages = get().pinnedMessages;
+      
+      // Update the message in the messages array
+      const updatedMessages = currentMessages.map((msg) => 
+        msg._id === messageId ? unpinnedMessage : msg
+      );
+      
+      // Remove from pinned messages array
+      set({ 
+        messages: updatedMessages,
+        pinnedMessages: currentPinnedMessages.filter((msg) => msg._id !== messageId)
+      });
+      
+      toast.success("Message unpinned");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Error occurred while unpinning message.");
     }
   },
 

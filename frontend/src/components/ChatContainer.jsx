@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useChatStore } from "../store/useChatStore.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import ChatHeader from "./ChatHeader.jsx";
+import PinnedMessagesSection from "./PinnedMessagesSection.jsx";
 import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder.jsx";
 import MessagesLoadingSkeleton from "./MessagesLoadingSkeleton.jsx";
 import MessageInput from "./MessageInput.jsx";
@@ -15,6 +16,7 @@ function ChatContainer() {
   const {
     selectedUser,
     getMessagesByUserId,
+    getPinnedMessages,
     messages,
     isMessagesLoading,
     subscribeToMessages,
@@ -23,9 +25,13 @@ function ChatContainer() {
     deleteMessageForMe,
     markMessagesAsRead,
     updateUnreadCount,
+    pinMessage,
+    unpinMessage,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const previousMessagesLengthRef = useRef(0);
   const [deleteModalState, setDeleteModalState] = useState({
     isOpen: false,
     messageId: null,
@@ -51,6 +57,7 @@ function ChatContainer() {
   useEffect(() => {
     if (selectedUser?._id) {
       getMessagesByUserId(selectedUser._id);
+      getPinnedMessages(selectedUser._id);
       subscribeToMessages();
       // Mark messages as read when opening conversation
       markMessagesAsRead(selectedUser._id);
@@ -63,9 +70,11 @@ function ChatContainer() {
   }, [selectedUser?._id]);
 
   useEffect(() => {
-    if (messageEndRef.current) {
-      messageEndRef.current.scrollIntoView({ behavior: "instant" });
+    // Only auto-scroll when new messages are added, not on every change
+    if (messages.length > previousMessagesLengthRef.current && messageEndRef.current) {
+      messageEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
+    previousMessagesLengthRef.current = messages.length;
   }, [messages]);
 
   const handleChatContainerClick = () => {
@@ -133,10 +142,36 @@ function ChatContainer() {
     setHoveredMessageId(null);
   };
 
+  const handlePinMessage = (messageId) => {
+    pinMessage(messageId);
+  };
+
+  const handleUnpinMessage = (messageId) => {
+    unpinMessage(messageId);
+  };
+
+  const scrollToMessage = (messageId) => {
+    const messageElement = document.getElementById(`message-${messageId}`);
+    if (messageElement && messagesContainerRef.current) {
+      messageElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      
+      // Highlight the message briefly
+      messageElement.classList.add("bg-cyan-500/20");
+      setTimeout(() => {
+        messageElement.classList.remove("bg-cyan-500/20");
+      }, 2000);
+    }
+  };
+
   return (
-    <>
+    <div className="flex flex-col h-full">
       <ChatHeader />
-      <div className="flex-1 px-6 overflow-y-auto overflow-x-hidden py-8" onClick={handleChatContainerClick}>
+      <PinnedMessagesSection onMessageClick={scrollToMessage} />
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 px-6 overflow-y-auto overflow-x-hidden py-8" 
+        onClick={handleChatContainerClick}
+      >
         {messages.length > 0 && !isMessagesLoading ? (
           <div className="max-w-3xl mx-auto space-y-0.5">
             {messages.map((msg, index) => {
@@ -173,7 +208,11 @@ function ChatContainer() {
               }
               
               return (
-              <div key={msg._id} className="flex flex-col gap-1 w-full">
+              <div 
+                key={msg._id} 
+                id={`message-${msg._id}`}
+                className="flex flex-col gap-1 w-full transition-colors duration-500"
+              >
                 <div className={`group flex items-end gap-1 ${
                   isOwnMessage ? "flex-row-reverse justify-start" : "flex-row justify-start"
                 }`}>
@@ -214,6 +253,9 @@ function ChatContainer() {
                     {/* Three-dot menu outside bubble */}
                     <MessageOptionsMenu 
                       onDelete={() => handleDeleteClick(msg._id, isOwnMessage)}
+                      onPin={() => handlePinMessage(msg._id)}
+                      onUnpin={() => handleUnpinMessage(msg._id)}
+                      isPinned={msg.isPinned || false}
                     />
                   </div>
                 </div>
@@ -276,7 +318,7 @@ function ChatContainer() {
           </div>,
           document.body
         )}
-    </>
+    </div>
   );
 }
 
