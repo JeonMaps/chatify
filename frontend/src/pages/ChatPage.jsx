@@ -37,7 +37,7 @@ function ChatPage() {
   }, [socket, selectedUser, updateUnreadCount]);
 
   return (
-    <div className="relative w-full max-w-6xl h-[800px]">
+    <div className="relative w-full max-w-6xl h-[calc(100vh-8rem)]">
       <BorderAnimatedContainer>
         {/* LEFT SIDE */}
         <div className="w-80 big-slate-800/50 backdrop-blur-sm flex flex-col">
