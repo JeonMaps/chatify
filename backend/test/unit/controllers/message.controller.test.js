@@ -8,6 +8,9 @@ import {
   deleteMessageForEveryone,
   deleteMessageForMe,
   markMessagesAsRead,
+  pinMessage,
+  unpinMessage,
+  getPinnedMessages,
 } from "../../../src/controllers/message.controller.js";
 import { ENV } from "../../../src/lib/env.js";
 import User from "../../../src/models/User.js";
@@ -542,6 +545,427 @@ describe("Message Controller Tests", () => {
       await markMessagesAsRead(req, res);
 
       expect(statusCode).to.equal(200);
+    });
+  });
+
+  describe("pinMessage", () => {
+    let testMessage;
+
+    beforeEach(async () => {
+      await Message.deleteMany({
+        $or: [
+          { senderId: { $in: [testUser1._id, testUser2._id, testUser3._id] } },
+          { receiverId: { $in: [testUser1._id, testUser2._id, testUser3._id] } },
+        ],
+      });
+
+      testMessage = await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Test message to pin",
+      });
+    });
+
+    it("should return 404 if message does not exist", async () => {
+      req.params.id = new mongoose.Types.ObjectId().toString();
+
+      await pinMessage(req, res);
+
+      expect(statusCode).to.equal(404);
+      expect(jsonResponse).to.deep.equal({ message: "Message not found" });
+    });
+
+    it("should return 403 if user is not part of conversation", async () => {
+      req.user._id = testUser3._id;
+      req.params.id = testMessage._id.toString();
+
+      await pinMessage(req, res);
+
+      expect(statusCode).to.equal(403);
+      expect(jsonResponse).to.deep.equal({ message: "You are not part of this conversation" });
+    });
+
+    it("should return 400 if message is already pinned", async () => {
+      testMessage.isPinned = true;
+      testMessage.pinnedAt = new Date();
+      testMessage.pinnedBy = testUser1._id;
+      await testMessage.save();
+
+      req.params.id = testMessage._id.toString();
+
+      await pinMessage(req, res);
+
+      expect(statusCode).to.equal(400);
+      expect(jsonResponse).to.deep.equal({ message: "Message is already pinned" });
+    });
+
+    it("should successfully pin a message when sender pins it", async () => {
+      req.params.id = testMessage._id.toString();
+
+      await pinMessage(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse).to.have.property("_id");
+      expect(jsonResponse.isPinned).to.be.true;
+      expect(jsonResponse).to.have.property("pinnedAt");
+      expect(jsonResponse.pinnedBy.toString()).to.equal(testUser1._id.toString());
+
+      const pinnedMessage = await Message.findById(testMessage._id);
+      expect(pinnedMessage.isPinned).to.be.true;
+      expect(pinnedMessage.pinnedAt).to.be.instanceOf(Date);
+      expect(pinnedMessage.pinnedBy.toString()).to.equal(testUser1._id.toString());
+    });
+
+    it("should successfully pin a message when receiver pins it", async () => {
+      req.user._id = testUser2._id;
+      req.params.id = testMessage._id.toString();
+
+      await pinMessage(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.isPinned).to.be.true;
+      expect(jsonResponse.pinnedBy.toString()).to.equal(testUser2._id.toString());
+
+      const pinnedMessage = await Message.findById(testMessage._id);
+      expect(pinnedMessage.isPinned).to.be.true;
+      expect(pinnedMessage.pinnedBy.toString()).to.equal(testUser2._id.toString());
+    });
+
+    it("should set pinnedAt timestamp when pinning", async () => {
+      const beforePin = new Date();
+      req.params.id = testMessage._id.toString();
+
+      await pinMessage(req, res);
+
+      const afterPin = new Date();
+      expect(statusCode).to.equal(200);
+      
+      const pinnedMessage = await Message.findById(testMessage._id);
+      expect(pinnedMessage.pinnedAt.getTime()).to.be.at.least(beforePin.getTime());
+      expect(pinnedMessage.pinnedAt.getTime()).to.be.at.most(afterPin.getTime());
+    });
+  });
+
+  describe("unpinMessage", () => {
+    let testMessage;
+
+    beforeEach(async () => {
+      await Message.deleteMany({
+        $or: [
+          { senderId: { $in: [testUser1._id, testUser2._id, testUser3._id] } },
+          { receiverId: { $in: [testUser1._id, testUser2._id, testUser3._id] } },
+        ],
+      });
+
+      testMessage = await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Test pinned message",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+      });
+    });
+
+    it("should return 404 if message does not exist", async () => {
+      req.params.id = new mongoose.Types.ObjectId().toString();
+
+      await unpinMessage(req, res);
+
+      expect(statusCode).to.equal(404);
+      expect(jsonResponse).to.deep.equal({ message: "Message not found" });
+    });
+
+    it("should return 403 if user is not part of conversation", async () => {
+      req.user._id = testUser3._id;
+      req.params.id = testMessage._id.toString();
+
+      await unpinMessage(req, res);
+
+      expect(statusCode).to.equal(403);
+      expect(jsonResponse).to.deep.equal({ message: "You are not part of this conversation" });
+    });
+
+    it("should return 400 if message is not pinned", async () => {
+      testMessage.isPinned = false;
+      testMessage.pinnedAt = null;
+      testMessage.pinnedBy = null;
+      await testMessage.save();
+
+      req.params.id = testMessage._id.toString();
+
+      await unpinMessage(req, res);
+
+      expect(statusCode).to.equal(400);
+      expect(jsonResponse).to.deep.equal({ message: "Message is not pinned" });
+    });
+
+    it("should successfully unpin a message when sender unpins it", async () => {
+      req.params.id = testMessage._id.toString();
+
+      await unpinMessage(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse).to.have.property("_id");
+      expect(jsonResponse.isPinned).to.be.false;
+      expect(jsonResponse.pinnedAt).to.be.null;
+      expect(jsonResponse.pinnedBy).to.be.null;
+
+      const unpinnedMessage = await Message.findById(testMessage._id);
+      expect(unpinnedMessage.isPinned).to.be.false;
+      expect(unpinnedMessage.pinnedAt).to.be.null;
+      expect(unpinnedMessage.pinnedBy).to.be.null;
+    });
+
+    it("should successfully unpin a message when receiver unpins it", async () => {
+      req.user._id = testUser2._id;
+      req.params.id = testMessage._id.toString();
+
+      await unpinMessage(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.isPinned).to.be.false;
+
+      const unpinnedMessage = await Message.findById(testMessage._id);
+      expect(unpinnedMessage.isPinned).to.be.false;
+      expect(unpinnedMessage.pinnedAt).to.be.null;
+      expect(unpinnedMessage.pinnedBy).to.be.null;
+    });
+
+    it("should allow user to unpin message pinned by other user in conversation", async () => {
+      // Message was pinned by user1
+      testMessage.pinnedBy = testUser1._id;
+      await testMessage.save();
+
+      // User2 unpins it
+      req.user._id = testUser2._id;
+      req.params.id = testMessage._id.toString();
+
+      await unpinMessage(req, res);
+
+      expect(statusCode).to.equal(200);
+      const unpinnedMessage = await Message.findById(testMessage._id);
+      expect(unpinnedMessage.isPinned).to.be.false;
+    });
+  });
+
+  describe("getPinnedMessages", () => {
+    beforeEach(async () => {
+      await Message.deleteMany({
+        $or: [
+          { senderId: { $in: [testUser1._id, testUser2._id, testUser3._id] } },
+          { receiverId: { $in: [testUser1._id, testUser2._id, testUser3._id] } },
+        ],
+      });
+    });
+
+    it("should return empty array when no pinned messages exist", async () => {
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse).to.be.an("array");
+      expect(jsonResponse.length).to.equal(0);
+    });
+
+    it("should return all pinned messages between two users", async () => {
+      // Create regular messages
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Regular message 1",
+        isPinned: false,
+      });
+
+      // Create pinned messages
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned message 1",
+        isPinned: true,
+        pinnedAt: new Date(Date.now() - 2000),
+        pinnedBy: testUser1._id,
+      });
+
+      await Message.create({
+        senderId: testUser2._id,
+        receiverId: testUser1._id,
+        text: "Pinned message 2",
+        isPinned: true,
+        pinnedAt: new Date(Date.now() - 1000),
+        pinnedBy: testUser2._id,
+      });
+
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse).to.be.an("array");
+      expect(jsonResponse.length).to.equal(2);
+      expect(jsonResponse.every((msg) => msg.isPinned)).to.be.true;
+    });
+
+    it("should sort pinned messages by pinnedAt descending (most recent first)", async () => {
+      const oldDate = new Date(Date.now() - 5000);
+      const middleDate = new Date(Date.now() - 3000);
+      const recentDate = new Date(Date.now() - 1000);
+
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Oldest pinned",
+        isPinned: true,
+        pinnedAt: oldDate,
+        pinnedBy: testUser1._id,
+      });
+
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Most recent pinned",
+        isPinned: true,
+        pinnedAt: recentDate,
+        pinnedBy: testUser1._id,
+      });
+
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Middle pinned",
+        isPinned: true,
+        pinnedAt: middleDate,
+        pinnedBy: testUser1._id,
+      });
+
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.length).to.equal(3);
+      expect(jsonResponse[0].text).to.equal("Most recent pinned");
+      expect(jsonResponse[1].text).to.equal("Middle pinned");
+      expect(jsonResponse[2].text).to.equal("Oldest pinned");
+    });
+
+    it("should not return pinned messages deleted for everyone", async () => {
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned but deleted for everyone",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+        deletedForEveryone: true,
+      });
+
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned and visible",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+      });
+
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.length).to.equal(1);
+      expect(jsonResponse[0].text).to.equal("Pinned and visible");
+    });
+
+    it("should not return pinned messages deleted for current user", async () => {
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned but deleted for me",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+        deletedFor: [testUser1._id],
+      });
+
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned and visible",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+      });
+
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.length).to.equal(1);
+      expect(jsonResponse[0].text).to.equal("Pinned and visible");
+    });
+
+    it("should only return pinned messages from specified conversation", async () => {
+      // Pinned message between user1 and user2
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned in user1-user2 conversation",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+      });
+
+      // Pinned message between user1 and user3
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser3._id,
+        text: "Pinned in user1-user3 conversation",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser1._id,
+      });
+
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.length).to.equal(1);
+      expect(jsonResponse[0].text).to.equal("Pinned in user1-user2 conversation");
+    });
+
+    it("should return pinned messages from both directions in conversation", async () => {
+      await Message.create({
+        senderId: testUser1._id,
+        receiverId: testUser2._id,
+        text: "Pinned from user1 to user2",
+        isPinned: true,
+        pinnedAt: new Date(Date.now() - 1000),
+        pinnedBy: testUser1._id,
+      });
+
+      await Message.create({
+        senderId: testUser2._id,
+        receiverId: testUser1._id,
+        text: "Pinned from user2 to user1",
+        isPinned: true,
+        pinnedAt: new Date(),
+        pinnedBy: testUser2._id,
+      });
+
+      req.params.id = testUser2._id.toString();
+
+      await getPinnedMessages(req, res);
+
+      expect(statusCode).to.equal(200);
+      expect(jsonResponse.length).to.equal(2);
+      const texts = jsonResponse.map((msg) => msg.text);
+      expect(texts).to.include("Pinned from user1 to user2");
+      expect(texts).to.include("Pinned from user2 to user1");
     });
   });
 });
